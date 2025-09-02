@@ -38,7 +38,7 @@ def main():
     t_rel = (tns - tns.min()) / 1e9
 
     fig, ax = plt.subplots()
-    sc = ax.scatter(lons, lats, c=t_rel, s=6, marker="o")
+    sc = ax.scatter(lons, lats, c=t_rel, s=2, marker=".")
     cbar = plt.colorbar(sc, ax=ax)
     cbar.set_label("Time since start (s)")
 
@@ -50,6 +50,13 @@ def main():
         ax.set_aspect("equal", adjustable="box")
 
     plt.tight_layout()
+
+    # Save plot with bag name
+    import os
+    bag_name = os.path.basename(os.path.dirname(os.path.dirname(args.csv)))
+    save_name = f"{bag_name}_image_positions.png"
+    plt.savefig(save_name)
+    print(f"Plot saved as {save_name}")
     plt.show()
 
 if __name__ == "__main__":
