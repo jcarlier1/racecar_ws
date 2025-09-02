@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+"""
+Export a minimal visual localization dataset from a RACECAR rosbag2 folder.
+
+Output:
+  <out_root>/images/front_left_center/<t_nsec>.png
+  <out_root>/poses/poses.csv
+
+poses.csv columns:
+  camera_id, img_relpath, t_nsec, lat, lon, alt
+
+Notes:
+  - Only extracts the front_left_center camera.
+  - Location ONLY from NovAtel BESTPOS (novatel_oem7_msgs/msg/BESTPOS or novatel_gps_msgs/msg/BESTPOS).
+  - No calibration is saved.
+"""
+
+import argparse
+import csv
+import re
+from bisect import bisect_left
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+from rosbags.rosbag2 import Reader
+from rosbags.typesys import get_types_from_msg, Stores, get_typestore
+
+
+# Topics and types
+FRONT_LEFT_CENTER_RE = re.compile(
+    r'^/(vehicle_\d+)/camera/front_left_center/image/compressed$'
+)
+BESTPOS_TYPES = {
+    'novatel_oem7_msgs/msg/BESTPOS',
+    'novatel_gps_msgs/msg/BESTPOS',
+}
+COMPRESSED_IMG_TYPE = 'sensor_msgs/msg/CompressedImage'
+
+
+def _iter_msg_files(msg_dir: Path):
+    if not msg_dir.exists():
+        return
+    for p in msg_dir.glob('**/*.msg'):
+        yield p
+
+
+def register_custom_msgs(custom_root: Path):
+    add_types = {}
+    pkgs = [
+        custom_root / 'ros2_custom_msgs' / 'novatel_oem7_msgs' / 'msg',
+        custom_root / 'ros2_custom_msgs' / 'novatel_gps_msgs' / 'msg',
+    ]
+    for pkg_dir in pkgs:
+        for msgpath in _iter_msg_files(pkg_dir):
+            name = msgpath.relative_to(msgpath.parents[2]).with_suffix('')
+            if 'msg' not in name.parts:
+                name = name.parent / 'msg' / name.name
+            msgdef = msgpath.read_text(encoding='utf-8')
+            add_types.update(get_types_from_msg(msgdef, str(name)))
+
+    # Create typestore for ROS 2 Humble and register custom types
+    typestore = get_typestore(Stores.ROS2_HUMBLE)
+    if add_types:
+        typestore.register(add_types)
+    return typestore
+
+
+def msg_get_lat_lon_alt(msg):
+    """Extract (lat, lon, alt) for BESTPOS variants."""
+    for lat_key, lon_key, alt_key in [
+        ('lat', 'lon', 'hgt'),     # novatel_oem7 BESTPOS
+        ('lat', 'lon', 'height'),  # novatel_gps BESTPOS
+    ]:
+        lat = getattr(msg, lat_key, None)
+        lon = getattr(msg, lon_key, None)
+        alt = getattr(msg, alt_key, None)
+        if lat is not None and lon is not None and alt is not None:
+            return float(lat), float(lon), float(alt)
+    return None
+
+
+def nearest_idx(sorted_times, t):
+    """Index of nearest timestamp in a sorted list of ints."""
+    if not sorted_times:
+        return None
+    i = bisect_left(sorted_times, t)
+    if i == 0:
+        return 0
+    if i == len(sorted_times):
+        return len(sorted_times) - 1
+    before = sorted_times[i - 1]
+    after = sorted_times[i]
+    return i - 1 if (t - before) <= (after - t) else i
+
+
+def build_dataset(bag_dir: Path, out_dir: Path, custom_root: Path):
+    out_images = out_dir / 'images' / 'front_left_center'
+    out_poses = out_dir / 'poses'
+    out_images.mkdir(parents=True, exist_ok=True)
+    out_poses.mkdir(parents=True, exist_ok=True)
+
+    # Register custom NovAtel types for BESTPOS
+    register_custom_msgs(custom_root)
+
+    # Discover relevant connections
+    with Reader(bag_dir) as reader:
+        conns = list(reader.connections)
+
+    flc_img_conns = []
+    bestpos_conns = []
+    vehicle_ns = None
+
+    for c in conns:
+        if c.msgtype == COMPRESSED_IMG_TYPE:
+            m = FRONT_LEFT_CENTER_RE.match(c.topic)
+            if m:
+                vehicle_ns = m.group(1)
+                flc_img_conns.append(c)
+        elif c.msgtype in BESTPOS_TYPES:
+            if vehicle_ns and f'/{vehicle_ns}/' in c.topic:
+                bestpos_conns.append(c)
+            elif not vehicle_ns:
+                bestpos_conns.append(c)
+
+    if not flc_img_conns:
+        raise RuntimeError('No front_left_center CompressedImage topic found.')
+    if not bestpos_conns:
+        raise RuntimeError('No BESTPOS messages found for GPS location.')
+
+    # Register custom NovAtel types for BESTPOS and get typestore
+    typestore = register_custom_msgs(custom_root)
+
+    # --- Pass 1: read GPS timeline ---
+    gps_times, gps_vals = [], []
+    with Reader(bag_dir) as reader:
+        for conn, t_nsec, raw in reader.messages(connections=bestpos_conns):
+            msg = typestore.deserialize_cdr(raw, conn.msgtype)   # CHANGED
+            llh = msg_get_lat_lon_alt(msg)
+            if llh is not None:
+                gps_times.append(t_nsec)
+                gps_vals.append(llh)
+
+    if not gps_times:
+        raise RuntimeError('No valid BESTPOS samples found.')
+
+    order = np.argsort(gps_times)
+    gps_times_sorted = [gps_times[i] for i in order]
+    gps_vals_sorted = [gps_vals[i] for i in order]
+
+    # Pass 2: iterate only front_left_center images, save PNGs, write CSV
+    poses_csv = out_poses / 'poses.csv'
+    with open(poses_csv, 'w', newline='') as fcsv:
+        W = csv.writer(fcsv)
+        W.writerow(['camera_id', 'img_relpath', 't_nsec', 'lat', 'lon', 'alt'])
+
+        with Reader(bag_dir) as reader:
+            for conn, t_nsec, raw in reader.messages(connections=flc_img_conns):
+                msg = typestore.deserialize_cdr(raw, conn.msgtype)   # CHANGED
+                data = getattr(msg, 'data', None)
+                if data is None:
+                    continue
+
+                npbuf = np.frombuffer(data, dtype=np.uint8)
+                img = cv2.imdecode(npbuf, cv2.IMREAD_COLOR)
+                if img is None:
+                    continue
+
+                # nearest GPS
+                idx = nearest_idx(gps_times_sorted, t_nsec)
+                if idx is None:
+                    continue
+                lat, lon, alt = gps_vals_sorted[idx]
+
+                # write image
+                fname = f'{t_nsec}.png'
+                cv2.imwrite(str(out_images / fname), img)
+
+                # write row
+                rel = f'images/front_left_center/{fname}'
+                W.writerow(['front_left_center', rel, t_nsec,
+                            f'{lat:.9f}', f'{lon:.9f}', f'{alt:.3f}'])
+
+    print('[OK] Dataset written:')
+    print(f'  Images: {out_images}')
+    print(f'  CSV:    {poses_csv}')
+
+
+def default_custom_root(script_path: Path) -> Path:
+    # Your tree places ros2_custom_msgs next to racecar_py under racecar_ws
+    return script_path.parent.parent
+
+
+def main():
+    ap = argparse.ArgumentParser(description='Export front_left_center images + GPS from a RACECAR rosbag2 folder.')
+    ap.add_argument('--bag', required=True, help='Path to rosbag2 folder (contains metadata.yaml and *.db3)')
+    ap.add_argument('--out', required=True, help='Output dataset folder')
+    ap.add_argument('--custom-root', default=None, help='Path containing ros2_custom_msgs (default: racecar_ws next to racecar_py)')
+    args = ap.parse_args()
+
+    bag_dir = Path(args.bag).resolve()
+    out_dir = Path(args.out).resolve()
+    custom_root = Path(args.custom_root).resolve() if args.custom_root else default_custom_root(Path(__file__).resolve())
+
+    if not bag_dir.exists():
+        raise SystemExit(f'Bag folder not found: {bag_dir}')
+    if not (custom_root / 'ros2_custom_msgs').exists():
+        raise SystemExit(f'Could not find ros2_custom_msgs under: {custom_root}')
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    build_dataset(bag_dir, out_dir, custom_root)
+
+
+if __name__ == '__main__':
+    main()

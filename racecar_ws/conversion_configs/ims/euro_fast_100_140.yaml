@@ -1,0 +1,17 @@
+scenario: 'S9'
+multi: False
+track:
+  name: 'IMS'
+  origin: [39.795398310617, -86.23476471193612, 223]
+  start_time: 1635019000.0
+  end_time: 2000000000.0
+ego:
+  team: 'EURORACING'
+  number: 6
+  source_file: 'IMS-FAST-100-140/rosbag2/20211023_IMS_final'
+  target_file: 'E-SOLO-FAST-100-140'
+  gps_topics: ['novatel_btm_id0_gps']
+  topic_types: ['sensor_msgs/msg/NavSatFix']
+  lidar_topics: ['luminar_id0_cloud','luminar_l_id0_cloud','luminar_r_id0_cloud']
+  novatel: False
+  write_to_bag: True
