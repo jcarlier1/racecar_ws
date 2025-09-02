@@ -66,12 +66,19 @@ def main():
     cbar = plt.colorbar(sc, ax=ax)
     cbar.set_label("Time since start (s)")
 
-    ax.set_xlabel("East (m)")
-    ax.set_ylabel("North (m)")
+    ax.set_xlabel("Y (m)")
+    ax.set_ylabel("X (m)")
     ax.set_title(f"Trajectory of {args.camera}")
     ax.set_aspect("equal", adjustable="box")
 
     plt.tight_layout()
+    
+    # Save plot with bag name
+    import os
+    bag_name = os.path.basename(os.path.dirname(os.path.dirname(args.csv)))
+    save_name = f"{bag_name}_image_positions.png"
+    plt.savefig(save_name)
+    print(f"Plot saved as {save_name}")
     plt.show()
 
 if __name__ == "__main__":
