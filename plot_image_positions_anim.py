@@ -138,9 +138,6 @@ def main():
                 print(f"Saved {out_base}.mp4")
             except Exception as e:
                 print(f"MP4 save failed: {e}")
-                print("Falling back to GIF...")
-                anim.save(f"{out_base}.gif", writer="pillow", fps=args.fps)
-                print(f"Saved {out_base}.gif")
         elif args.save == "gif":
             anim.save(f"{out_base}.gif", writer="pillow", fps=args.fps)
             print(f"Saved {out_base}.gif")
