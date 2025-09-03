@@ -1,6 +1,9 @@
 # Visual Localization Database - README
 
-This repo is dedicated to producing a visual localization database for racecar datasets. It contains scripts and resources for extracting, processing, and visualizing image and pose data from various racecar sequences.
+This repo is dedicated to producing a visual localization database for the RACECAR dataset. It contains scripts and resources for extracting, processing, and visualizing image and pose data from various RACECAR sequences.
+
+## RACECAR Dataset
+This repository is designed to work with the [RACECAR dataset](https://github.com/jcarlier1/racecar-dataset). Please refer to their official repository for dataset details, download instructions, and documentation.
 
 ## Purpose
 The main goal is to facilitate the creation and analysis of a database that supports visual localization tasks. This includes converting raw data (such as ROS bags) into structured image and pose datasets, and providing tools to visualize and inspect the results.
