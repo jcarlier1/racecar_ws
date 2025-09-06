@@ -55,8 +55,7 @@ def read_positions(csv_path, camera_id):
 
 def main():
     ap = argparse.ArgumentParser(description="Animate image positions around racetrack.")
-    ap.add_argument("--csv", default="output/sequences/M-SOLO-SLOW-70/poses/poses.csv",
-                    help="Path to poses.csv")
+    ap.add_argument("--csv", required=True, help="Path to poses.csv")
     ap.add_argument("--camera", default="front_left_center",
                     help="Camera ID to filter, e.g., front_left_center")
     ap.add_argument("--step", type=int, default=30,
