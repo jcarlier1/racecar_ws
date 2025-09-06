@@ -62,7 +62,7 @@ def main():
                     help="Number of points to add per frame")
     ap.add_argument("--fps", type=int, default=30,
                     help="Frames per second for the animation")
-    ap.add_argument("--save", default="", choices=["", "mp4", "gif"],
+    ap.add_argument("--save", default="mp4", choices=["", "mp4", "gif"],
                     help="Save animation as mp4 or gif. Empty means do not save.")
     ap.add_argument("--s", type=float, default=8.0,
                     help="Marker size")
@@ -76,6 +76,8 @@ def main():
     # Figure and static scaffolding
     fig, ax = plt.subplots(figsize=(7, 7))
     sc = ax.scatter([], [], c=[], s=args.s, marker="o")
+    # Current point marker: red, slightly larger, drawn on top and updated each frame
+    sc_cur = ax.scatter([], [], c="red", s=(args.s * 5), marker="o", zorder=3)
     cbar = plt.colorbar(sc, ax=ax)
     cbar.set_label("Time in minute (s), color restarts every 60s")
 
@@ -98,24 +100,41 @@ def main():
     pts = np.empty((0, 2), dtype=float)
     colors = np.empty((0,), dtype=float)
 
-    # For consistent color scale across frames (reset every 60s)
-    sc.set_clim(vmin=0, vmax=60)
+    # Color mapping parameters: restart every N points, bounce back-and-forth
+    COLOR_PERIOD = 500
+    sc.set_clim(vmin=0, vmax=COLOR_PERIOD)
+    cbar.set_label(f"Color index (bounces every {COLOR_PERIOD} points)")
 
     def init():
         sc.set_offsets(np.empty((0, 2)))
         sc.set_array(np.empty((0,), dtype=float))
-        return (sc,)
+        sc_cur.set_offsets(np.empty((0, 2)))
+        return (sc, sc_cur)
 
     def update(frame_idx):
         end = min((frame_idx + 1) * args.step, n_total)
         # Slice all points up to this frame
         pts = np.column_stack([east[:end], north[:end]])
-        colors = t_rel[:end] % 60  # Reset color every 60s
+
+        # Create a bouncing color index that goes 0..COLOR_PERIOD and back,
+        # then repeats. This avoids abrupt jumps to 0 and gives a continuous
+        # change of color along the trajectory.
+        idxs = np.arange(end)
+        cycle = 2 * COLOR_PERIOD
+        p = np.mod(idxs, cycle)
+        colors = np.where(p < COLOR_PERIOD, p, cycle - p)
+
         sc.set_offsets(pts)
         sc.set_array(colors)
+        # Update current point marker to the last point in the current slice.
+        if end > 0:
+            cur_pt = np.array([[east[end-1], north[end-1]]])
+            sc_cur.set_offsets(cur_pt)
+        else:
+            sc_cur.set_offsets(np.empty((0, 2)))
         ax.set_title(f"Trajectory animation: {args.camera}  [{bag_name}]  "
-                    f"Points: {end}/{n_total}")
-        return (sc,)
+                f"Points: {end}/{n_total}")
+        return (sc, sc_cur)
 
     anim = FuncAnimation(
         fig,

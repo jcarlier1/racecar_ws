@@ -4,3 +4,4 @@ to_remove/
 venv/
 plots/
 nuScenes_data/
+__pycache__/
