@@ -149,7 +149,8 @@ def main():
     plt.tight_layout()
 
     if args.save:
-        out_base = f"{bag_name}_{args.camera}_traj_anim"
+        csv_base = os.path.splitext(os.path.basename(args.csv))[-1]
+        out_base = f"{bag_name}_{csv_base}_{args.camera}_traj_anim"
         plots_dir = "/media/pragyan/Data/racecar_ws/plots"
         os.makedirs(plots_dir, exist_ok=True)
         if args.save == "mp4":
