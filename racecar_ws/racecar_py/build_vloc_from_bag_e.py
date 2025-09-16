@@ -146,13 +146,21 @@ def build_dataset(bag_dir: Path, out_dir: Path, custom_root: Path):
     # --- Pass 1: read GPS timeline ---
     print("Starting GPS pass...")
     gps_times, gps_vals = [], []
+    gps_count = 0
     with Reader(bag_dir) as reader:
         for conn, t_nsec, raw in reader.messages(connections=gps_conns):
-            msg = typestore.deserialize_cdr(raw, conn.msgtype)   # CHANGED
-            llh = msg_get_lat_lon_alt(msg)
-            if llh is not None:
-                gps_times.append(t_nsec)
-                gps_vals.append(llh)
+            try:
+                msg = typestore.deserialize_cdr(raw, conn.msgtype)
+                llh = msg_get_lat_lon_alt(msg)
+                if llh is not None:
+                    gps_times.append(t_nsec)
+                    gps_vals.append(llh)
+            except Exception as e:
+                print(f"Error deserializing GPS message on topic {conn.topic}: {e}")
+                continue
+            gps_count += 1
+            if gps_count % 1000 == 0:
+                print(f"Processed {gps_count} GPS messages")
 
     if not gps_times:
         raise RuntimeError('No valid GPS samples found.')
