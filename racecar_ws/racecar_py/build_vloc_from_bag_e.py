@@ -102,15 +102,18 @@ def nearest_idx(sorted_times, t):
 
 
 def build_dataset(bag_dir: Path, out_dir: Path, custom_root: Path):
+    print("Starting dataset build...")
     out_images = out_dir / 'images' / 'front_left_center'
     out_poses = out_dir / 'poses'
     out_images.mkdir(parents=True, exist_ok=True)
     out_poses.mkdir(parents=True, exist_ok=True)
 
     # Register custom NovAtel types for BESTPOS
+    print("Registering custom messages...")
     register_custom_msgs(custom_root)
 
     # Discover relevant connections
+    print("Discovering connections...")
     with Reader(bag_dir) as reader:
         conns = list(reader.connections)
 
@@ -135,10 +138,13 @@ def build_dataset(bag_dir: Path, out_dir: Path, custom_root: Path):
     if not gps_conns:
         raise RuntimeError('No GPS messages found for location.')
 
+    print(f"Found {len(flc_img_conns)} image connections, {len(gps_conns)} GPS connections")
+
     # Register custom NovAtel types for BESTPOS and get typestore
     typestore = register_custom_msgs(custom_root)
 
     # --- Pass 1: read GPS timeline ---
+    print("Starting GPS pass...")
     gps_times, gps_vals = [], []
     with Reader(bag_dir) as reader:
         for conn, t_nsec, raw in reader.messages(connections=gps_conns):
@@ -155,12 +161,16 @@ def build_dataset(bag_dir: Path, out_dir: Path, custom_root: Path):
     gps_times_sorted = [gps_times[i] for i in order]
     gps_vals_sorted = [gps_vals[i] for i in order]
 
+    print(f"GPS pass done, collected {len(gps_times)} GPS points")
+
     # Pass 2: iterate only front_left_center images, save PNGs, write CSV
+    print("Starting image processing pass...")
     poses_csv = out_poses / 'poses.csv'
     with open(poses_csv, 'w', newline='') as fcsv:
         W = csv.writer(fcsv)
         W.writerow(['camera_id', 'img_relpath', 't_nsec', 'lat', 'lon', 'alt'])
 
+        count = 0
         with Reader(bag_dir) as reader:
             for conn, t_nsec, raw in reader.messages(connections=flc_img_conns):
                 msg = typestore.deserialize_cdr(raw, conn.msgtype)   # CHANGED
@@ -201,6 +211,11 @@ def build_dataset(bag_dir: Path, out_dir: Path, custom_root: Path):
                 W.writerow(['front_left_center', rel, t_nsec,
                             f'{lat:.9f}', f'{lon:.9f}', f'{alt:.3f}'])
 
+                count += 1
+                if count % 100 == 0:
+                    print(f"Processed {count} images")
+
+    print(f"Image processing done, total images: {count}")
     print('[OK] Dataset written:')
     print(f'  Images: {out_images}')
     print(f'  CSV:    {poses_csv}')
