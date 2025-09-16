@@ -150,15 +150,19 @@ def main():
 
     if args.save:
         out_base = f"{bag_name}_{args.camera}_traj_anim"
+        plots_dir = "/media/pragyan/Data/racecar_ws/plots"
+        os.makedirs(plots_dir, exist_ok=True)
         if args.save == "mp4":
             try:
-                anim.save(f"{out_base}.mp4", writer="ffmpeg", fps=args.fps, dpi=150)
-                print(f"Saved {out_base}.mp4")
+                mp4_path = os.path.join(plots_dir, f"{out_base}.mp4")
+                anim.save(mp4_path, writer="ffmpeg", fps=args.fps, dpi=150)
+                print(f"Saved {mp4_path}")
             except Exception as e:
                 print(f"MP4 save failed: {e}")
         elif args.save == "gif":
-            anim.save(f"{out_base}.gif", writer="pillow", fps=args.fps)
-            print(f"Saved {out_base}.gif")
+            gif_path = os.path.join(plots_dir, f"{out_base}.gif")
+            anim.save(gif_path, writer="pillow", fps=args.fps)
+            print(f"Saved {gif_path}")
 
     plt.show()
 
